@@ -4,13 +4,14 @@ import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.stream.ActorMaterializer
 import akka.dispatch.forkjoin.ForkJoinPool
+import akka.http.scaladsl.model.{ContentTypes, HttpEntity}
 import akka.http.scaladsl.server.Route
 import akka.http.scaladsl.server.Directives._
-import akka.http.scaladsl.model.{ContentTypes, HttpEntity}
 import javax.net.ssl.{HostnameVerifier, HttpsURLConnection, SSLContext, SSLSession, X509TrustManager}
-
+import io.circe._, io.circe.parser._
 import scala.concurrent.ExecutionContext
 import scala.io.{Source, StdIn}
+import io.circe.generic.JsonCodec, io.circe.syntax._
 
 object TrustAll extends X509TrustManager {
   val getAcceptedIssuers = null
@@ -24,6 +25,7 @@ object VerifiesAllHostNames extends HostnameVerifier {
   def verify(s: String, sslSession: SSLSession) = true
 }
 
+case class Rates(base: String, rates: Map[String,BigDecimal], date: String)
 
 object Entry extends App{
 
@@ -35,46 +37,36 @@ object Entry extends App{
   val route: Route =
     concat(
       get {
-        path("convert")
-        parameterMap { params =>
+        path("convert") {
+          parameterMap { params => {
+            def paramString(param: (String, String, BigDecimal)): String = s"""${param._1} = '${param._2}'"""
+            val url = "https://api.ratesapi.io/api/latest"
+            val sslContext = SSLContext.getInstance("SSL")
+            sslContext.init(null, Array(TrustAll), new java.security.SecureRandom())
+            HttpsURLConnection.setDefaultSSLSocketFactory(sslContext.getSocketFactory)
+            HttpsURLConnection.setDefaultHostnameVerifier(VerifiesAllHostNames)
+            val r = requests.get(url)
+            parse(r.text()) match {
+              case Left(failure) => complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, s"${failure.message}"))
+              case Right(json) => {
 
-          def paramString(param: (String, String)): String = s"""${param._1} = '${param._2}'"""
+                val from = params("from").toString
+                val to = params("to").toString
+                val number = BigDecimal(params("number").toString)
 
-          complete(s"The parameters are ${params.mkString(", ")}")
-
-//          complete(s"The parameters are ${params.map(paramString).mkString(", ")}")
-        }
-      }
-
-
-//        {
-//          parameterMap
-//          val url = "https://api.ratesapi.io/api/latest"
-//          val sslContext = SSLContext.getInstance("SSL")
-//          sslContext.init(null, Array(TrustAll), new java.security.SecureRandom())
-//          HttpsURLConnection.setDefaultSSLSocketFactory(sslContext.getSocketFactory)
-//          HttpsURLConnection.setDefaultHostnameVerifier(VerifiesAllHostNames)
-//
-//          val r = requests.get(url)
-//
-//
-//          complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, s"${r.text}"))
-//
-////          onSuccess(maybeItem) {
-////            case Some(item) => complete(item)
-////            case None       => complete(StatusCodes.NotFound)
-////          }
-//        }
-//      }
-,
-      post {
-        path("create-order") {
-          entity(as[String]) { order =>
-//            val saved: Future[Done] = saveOrder(order)
-            complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, s"<h1>telegram is cool</h1>"))
-//            onComplete(saved) { done =>
-//              complete("order created")
-//            }
+                (json.hcursor.downField("rates").downField(from).as[BigDecimal],
+                  json.hcursor.downField("rates").downField(to).as[BigDecimal]) match {
+                  case (Right(f1), Right(f2)) => {
+                    val result = f2 / f1 * number
+                    complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, s"$result"))
+                  }
+                  case (Right(f1),Left(f2))=>complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, s"${f2}"))
+                  case (Left(f1),Right(f2))=>complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, s"${f1}"))
+                  case (Left(f1),Left(f2))=>complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, s"${f1} ${f2}"))
+                }
+              }
+            }
+          }
           }
         }
       }
