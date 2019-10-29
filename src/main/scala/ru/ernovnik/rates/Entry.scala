@@ -3,14 +3,7 @@ package ru.ernovnik.rates
 
 
 import java.security.cert.X509Certificate
-import akka.http.caching.scaladsl.Cache
-import akka.http.caching.scaladsl.CachingSettings
-import akka.http.caching.LfuCache
-import akka.http.scaladsl.server.RequestContext
-import akka.http.scaladsl.server.RouteResult
-import akka.http.scaladsl.model.Uri
 import akka.http.scaladsl.server.directives.CachingDirectives._
-import scala.concurrent.duration._
 import akka.actor.ActorSystem
 import akka.dispatch.forkjoin.ForkJoinPool
 import akka.http.caching.LfuCache
@@ -20,7 +13,6 @@ import akka.http.scaladsl.model.{ContentTypes, HttpEntity, Uri}
 import akka.http.scaladsl.server.Directives._
 import akka.http.scaladsl.server.{RequestContext, Route, RouteResult}
 import akka.stream.ActorMaterializer
-import io.circe.parser._
 import javax.net.ssl._
 import scala.concurrent.duration._
 
@@ -75,42 +67,7 @@ object Entry extends App{
       get {
         path("convert") {
           parameters("from".as[String],"to".as[String], "number".as[Int]) { (from:String, to:String, number: Int) =>
-            parse(requests.get(url).text()) match {
-              case Left(failure) => complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, s"${failure.message}"))
-              case Right(json) => {
-                (json.hcursor.downField("rates").downField(from.toUpperCase).as[BigDecimal],
-                  json.hcursor.downField("rates").downField(to.toUpperCase).as[BigDecimal]) match {
-                  case (Right(f1), Right(f2)) => {
-                    complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, s"${f2 / f1 * number}"))
-                  }
-                  case (Right(_), Left(_)) if from == baseCurrency => {
-                    complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, "error getting currency to"))
-                  }
-                  case (Left(_), Right(_)) if to == baseCurrency => {
-                    complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, "error getting currency from"))
-                  }
-                  case (Right(f1), Left(_)) if to == baseCurrency => {
-                    complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, s"${number/f1}"))
-                  }
-                  case (Left(_), Right(f2)) if from == baseCurrency => {
-                    complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, s"${number*f2}"))
-                  }
-                  case (Right(_), Left(f2)) => {
-                    complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, s"${f2}"))
-                  }
-                  case (Left(_), Right(_)) => {
-                    complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, "error getting currency from"))
-                  }
-                  case (Right(_), Left(_)) => {
-                    complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, "error getting currency to"))
-                  }
-                  case (Left(_), Left(_)) if from == baseCurrency && to == baseCurrency => {
-                    complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, s"$number"))
-                  }
-                  case (Left(_), Left(_)) => complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, "error getting currencies from & to"))
-                }
-              }
-            }
+            complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, RateService.calculate(from, to, number)))
           }
         }
       }
