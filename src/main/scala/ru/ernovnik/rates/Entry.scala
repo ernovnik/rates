@@ -53,6 +53,7 @@ object Entry extends App{
   sslContext.init(null, Array(TrustAll), new java.security.SecureRandom())
   HttpsURLConnection.setDefaultSSLSocketFactory(sslContext.getSocketFactory)
   HttpsURLConnection.setDefaultHostnameVerifier(VerifiesAllHostNames)
+  val baseCurrency = "EUR"
 
   val keyerFunction: PartialFunction[RequestContext, Uri] = {
     case r: RequestContext => r.request.uri
@@ -77,15 +78,36 @@ object Entry extends App{
             parse(requests.get(url).text()) match {
               case Left(failure) => complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, s"${failure.message}"))
               case Right(json) => {
-                (json.hcursor.downField("rates").downField(from).as[BigDecimal],
-                  json.hcursor.downField("rates").downField(to).as[BigDecimal]) match {
+                (json.hcursor.downField("rates").downField(from.toUpperCase).as[BigDecimal],
+                  json.hcursor.downField("rates").downField(to.toUpperCase).as[BigDecimal]) match {
                   case (Right(f1), Right(f2)) => {
-                    val result = f2 / f1 * number
-                    complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, s"$result"))
+                    complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, s"${f2 / f1 * number}"))
                   }
-                  case (Right(_), Left(f2)) => complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, s"${f2}"))
-                  case (Left(f1), Right(_)) => complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, s"${f1}"))
-                  case (Left(f1), Left(f2)) => complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, s"${f1} ${f2}"))
+                  case (Right(_), Left(_)) if from == baseCurrency => {
+                    complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, "error getting currency to"))
+                  }
+                  case (Left(_), Right(_)) if to == baseCurrency => {
+                    complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, "error getting currency from"))
+                  }
+                  case (Right(f1), Left(_)) if to == baseCurrency => {
+                    complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, s"${number/f1}"))
+                  }
+                  case (Left(_), Right(f2)) if from == baseCurrency => {
+                    complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, s"${number*f2}"))
+                  }
+                  case (Right(_), Left(f2)) => {
+                    complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, s"${f2}"))
+                  }
+                  case (Left(_), Right(_)) => {
+                    complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, "error getting currency from"))
+                  }
+                  case (Right(_), Left(_)) => {
+                    complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, "error getting currency to"))
+                  }
+                  case (Left(_), Left(_)) if from == baseCurrency && to == baseCurrency => {
+                    complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, s"$number"))
+                  }
+                  case (Left(_), Left(_)) => complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, "error getting currencies from & to"))
                 }
               }
             }
